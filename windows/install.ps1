@@ -5,9 +5,11 @@
 
   No admin rights needed. It:
     1. copies the app to %LOCALAPPDATA%\Programs\EasySwitchRelay
-    2. sets it to start when you sign in (Task Scheduler, restarts if it crashes)
-    3. checks your keyboard and mouse and prints the result
-    4. starts it
+    2. sets the relay to start when you sign in (Task Scheduler, restarts if it crashes)
+    3. adds "EasySwitch Relay" to the Start menu (opens the settings window)
+    4. checks your keyboard and mouse and prints the result
+    5. starts the relay and opens the settings window
+  Your settings are kept when you update.
 #>
 $ErrorActionPreference = 'Stop'
 $Src      = $PSScriptRoot
@@ -16,6 +18,7 @@ $Exe      = Join-Path $Dest 'easyswitch-relay.exe'
 $TaskName = 'EasySwitch Relay'
 $RunKey   = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $LogPath  = Join-Path $env:LOCALAPPDATA 'EasySwitchRelay\relay.log'
+$Shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'EasySwitch Relay.lnk'
 
 if (-not (Test-Path (Join-Path $Src 'easyswitch-relay.exe'))) {
     throw "easyswitch-relay.exe not found next to this script. Run install.ps1 from the built folder (dist\EasySwitchRelay-windows-x64)."
@@ -44,7 +47,7 @@ Get-ChildItem -Path $Dest -Recurse -File | Unblock-File
 $user = if ($env:USERDOMAIN) { "$env:USERDOMAIN\$env:USERNAME" } else { $env:USERNAME }
 $useTask = $true
 try {
-    $action    = New-ScheduledTaskAction -Execute $Exe -WorkingDirectory $Dest
+    $action    = New-ScheduledTaskAction -Execute $Exe -Argument '--run' -WorkingDirectory $Dest
     $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $user
     $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                     -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
@@ -57,8 +60,21 @@ try {
     Write-Host "Set to start at sign-in (Task Scheduler: '$TaskName')."
 } catch {
     $useTask = $false
-    Set-ItemProperty -Path $RunKey -Name $TaskName -Value "`"$Exe`""
+    Set-ItemProperty -Path $RunKey -Name $TaskName -Value "`"$Exe`" --run"
     Write-Host "Set to start at sign-in (Startup apps). Task Scheduler wasn't available: $($_.Exception.Message)"
+}
+
+# Start menu entry: opens the settings window.
+try {
+    $ws = New-Object -ComObject WScript.Shell
+    $lnk = $ws.CreateShortcut($Shortcut)
+    $lnk.TargetPath = $Exe
+    $lnk.WorkingDirectory = $Dest
+    $lnk.Description = 'EasySwitch Relay settings'
+    $lnk.Save()
+    Write-Host "Added 'EasySwitch Relay' to the Start menu (opens the settings)."
+} catch {
+    Write-Host "Couldn't add the Start menu entry: $($_.Exception.Message)"
 }
 
 # Check the devices. They must be connected to THIS PC right now.
@@ -73,8 +89,11 @@ if (Test-Path $LogPath) {
     Get-Content $LogPath | Select-Object -Skip $before | ForEach-Object { Write-Host "  $_" }
 }
 
-# Start it now.
-if ($useTask) { Start-ScheduledTask -TaskName $TaskName } else { Start-Process -FilePath $Exe }
+# Start the relay now, then open the settings window.
+if ($useTask) { Start-ScheduledTask -TaskName $TaskName } else { Start-Process -FilePath $Exe -ArgumentList '--run' }
+Start-Sleep -Seconds 1
+Start-Process -FilePath $Exe
 Write-Host ""
-Write-Host "EasySwitch Relay is installed and running."
+Write-Host "EasySwitch Relay is installed and running. The settings window is open;"
+Write-Host "you can reopen it any time from the Start menu (EasySwitch Relay)."
 Write-Host "Log: $LogPath"
