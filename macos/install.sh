@@ -3,6 +3,7 @@
 #
 #     bash install.sh            install, start at login, start now, check devices
 #     bash install.sh --check    only re-run the device/permission check
+#     bash install.sh --update   used by the app's updater (add --quiet when unattended)
 #
 # No admin password needed. The app goes in ~/Applications and a login agent
 # in ~/Library/LaunchAgents keeps the relay running (and restarts it if it
@@ -39,6 +40,11 @@ check() {
 }
 
 if [[ "${1:-}" == "--check" ]]; then check; exit $?; fi
+UPDATE=0; QUIET=0
+for a in "$@"; do
+    case "$a" in --update) UPDATE=1 ;; --quiet) QUIET=1 ;; esac
+done
+[[ $UPDATE == 1 ]] && echo "=== update $(date '+%Y-%m-%d %H:%M:%S') ==="
 
 if [[ ! -d "$SRC/$APP_NAME" ]]; then
     echo "'$APP_NAME' not found next to this script. Run install.sh from the built folder." >&2
@@ -52,6 +58,12 @@ sleep 0.5
 
 # Install the app.
 mkdir -p "$DEST_DIR"
+if [[ -d "$APP" ]]; then
+    # Each build has a new ad-hoc signature, so macOS no longer honours the old
+    # Input Monitoring entry even though its switch still looks on. Clear it so
+    # macOS asks again for this version.
+    tccutil reset ListenEvent "$LABEL" >/dev/null 2>&1 || true
+fi
 rm -rf "$APP"
 ditto "$SRC/$APP_NAME" "$APP"
 # A zip that came from a download/AirDrop marks the app as quarantined, which
@@ -86,8 +98,10 @@ EOF
 plutil -lint "$PLIST" >/dev/null
 
 # Check first (this is also when macOS asks for Input Monitoring), then start.
-echo
-check || true
+if [[ $QUIET == 0 ]]; then
+    echo
+    check || true
+fi
 launchctl bootstrap "$DOMAIN" "$PLIST"
 echo
 echo "EasySwitch Relay is installed and running. Opening the settings window;"
@@ -96,4 +110,4 @@ echo "If macOS asks whether EasySwitch Relay may accept incoming network connect
 echo "choose Allow (needed for network follow)."
 echo "Log: $LOG"
 sleep 1
-open "$APP"
+[[ $QUIET == 1 ]] || open "$APP"
