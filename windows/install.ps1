@@ -63,9 +63,12 @@ try {
 
 # Check the devices. They must be connected to THIS PC right now.
 Write-Host ""
-Write-Host "Checking your keyboard and mouse (they need to be connected to this PC)..."
+Write-Host "Checking your keyboard and mouse (they need to be connected to this PC)."
+Write-Host "Move the mouse and press a key now so both are awake (this takes up to 10 seconds)..."
 $before = if (Test-Path $LogPath) { (Get-Content $LogPath).Count } else { 0 }
+$env:EASYSWITCH_QUIET = '1'      # the relay writes only to its log; we print it below
 Start-Process -FilePath $Exe -ArgumentList '--probe' -Wait -WindowStyle Hidden
+Remove-Item Env:\EASYSWITCH_QUIET
 if (Test-Path $LogPath) {
     Get-Content $LogPath | Select-Object -Skip $before | ForEach-Object { Write-Host "  $_" }
 }
