@@ -4,7 +4,7 @@ Press an Easy-Switch key (1, 2 or 3) on your **MX Keys** and your **MX Master 3S
 switches to the same computer at the same moment. No more flipping the mouse over,
 and no more typing into the wrong machine.
 
-Version 1.0.0 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
+Version 1.0.1 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
 
 ---
 
@@ -116,11 +116,18 @@ RESULT: OK. This computer is channel 1 on all devices.
 | Check result or symptom | What to do |
 |---|---|
 | `no Logitech keyboard or mouse found` | Make sure the devices are connected to this computer right now. On a Mac, check Input Monitoring. |
-| `no keyboard accepted the Easy-Switch takeover` | Logi Options+ may still be running; uninstall it. Otherwise send me the log. |
+| `no keyboard accepted the Easy-Switch takeover` | Logi Options+ may still be running; uninstall it. Otherwise run the diagnose command below and send the report. |
+| `the keyboard works, but no mouse answered` | Move the mouse (it may be asleep) and make sure it's on this computer's channel, then run the check again. |
 | `different channel numbers` | Re-pair so this computer has the same number on both devices. |
 | Keys switch only the keyboard | Is the relay running? Windows: Task Manager → `easyswitch-relay`. Mac: `pgrep -lf easyswitch-relay`. |
 | Mac stops taking typing while the relay runs | Quit it (`bash uninstall.sh`) and send me the log. This is a known macOS risk the relay guards against. |
 | Windows warns the app is unrecognized, or antivirus flags it | It's unsigned and packaged with PyInstaller, which some antivirus tools flag. Build it yourself from this folder if you prefer, and compare the `.sha256` before copying it to another PC. |
+
+**Detailed device report.** This lists what the keyboard and mouse support. It contains
+device names, feature lists and key IDs only, and is saved as `diagnose.txt` next to the log.
+
+- Windows: `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --diagnose`
+- Mac: `"$HOME/Applications/EasySwitch Relay.app/Contents/MacOS/easyswitch-relay" --diagnose`
 
 ## What's in this folder
 
