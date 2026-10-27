@@ -5,7 +5,9 @@
 #     bash install.sh --check    only re-run the device/permission check
 #
 # No admin password needed. The app goes in ~/Applications and a login agent
-# in ~/Library/LaunchAgents keeps it running (and restarts it if it crashes).
+# in ~/Library/LaunchAgents keeps the relay running (and restarts it if it
+# crashes). Opening the app (double-click) shows the settings window. Your
+# settings are kept when you update.
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="EasySwitch Relay.app"
@@ -68,6 +70,7 @@ cat > "$PLIST" <<EOF
     <key>ProgramArguments</key>
     <array>
         <string>$APP/Contents/MacOS/easyswitch-relay</string>
+        <string>--run</string>
     </array>
     <key>RunAtLoad</key>         <true/>
     <key>KeepAlive</key>
@@ -87,5 +90,10 @@ echo
 check || true
 launchctl bootstrap "$DOMAIN" "$PLIST"
 echo
-echo "EasySwitch Relay is installed and running."
+echo "EasySwitch Relay is installed and running. Opening the settings window;"
+echo "you can reopen it any time by opening 'EasySwitch Relay' in your Applications folder."
+echo "If macOS asks whether EasySwitch Relay may accept incoming network connections,"
+echo "choose Allow (needed for network follow)."
 echo "Log: $LOG"
+sleep 1
+open "$APP"
