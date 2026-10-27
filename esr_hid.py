@@ -15,7 +15,7 @@ import time
 
 import hid
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 if sys.platform == "darwin":
     # hidapi on macOS opens devices exclusively ("seize") by default, which can
@@ -179,6 +179,7 @@ class Link:
         self.alive = True
         self.write_err = ""           # last write error text, logged when it changes
         self.write_err_at = 0.0
+        self.refused_at = 0.0         # last time the OS said "not permitted" (macOS Secure Input)
         self.handles = []
         long_handle = None
         seen = set()
@@ -239,6 +240,11 @@ class Link:
             self._note_write_error(err)
         return ok
 
+    def refused(self, within=10.0):
+        """True if the OS recently refused writes outright (on macOS: another app
+        holds Secure Input, which blocks writes to keyboards)."""
+        return self.refused_at and time.monotonic() - self.refused_at < within
+
     def _note_write_error(self, err):
         """Log why writes fail (the operating system's own error text), once per
         distinct error and at most once a minute: this is what tells apart
@@ -249,6 +255,8 @@ class Link:
             pass
         err = (err or "unknown error").strip()[:200]
         now = time.monotonic()
+        if "not permitted" in err.lower() or "e00002e2" in err.lower():
+            self.refused_at = now
         if err != self.write_err or now - self.write_err_at > 60:
             self.write_err, self.write_err_at = err, now
             log(f"write to {self.product or 'device'} failed: {err}")
@@ -336,16 +344,19 @@ def get_feature(link, idx, fid, timeout=PROBE_TIMEOUT):
 
 
 def get_name(link, idx, f_name, timeout=PROBE_TIMEOUT):
+    """The device's name, or None unless it was read completely (a name read
+    halfway, e.g. when the OS starts refusing writes mid-read, is useless)."""
     r = request(link, idx, f_name, 0, timeout=timeout)
-    if not r:
-        return "?"
+    if not r or not 0 < r[0] <= 64:
+        return None
     n, out = r[0], []
     while len(out) < n:
         c = request(link, idx, f_name, 1, [len(out)], timeout)
         if not c:
-            break
+            return None
         out += c[: n - len(out)]
-    return bytes(out).split(b"\0")[0].decode(errors="replace") or "?"
+    name = bytes(out).split(b"\0")[0].decode(errors="replace").strip()
+    return name or None
 
 
 DEVICE_TYPES = {0: "keyboard", 1: "remote control", 2: "numpad", 3: "mouse",
@@ -396,7 +407,7 @@ def find_keyboard(links):
                 continue
             f_reprog = get_feature(link, idx, F_REPROG)
             if f_reprog:
-                return link, idx, f_reprog, get_name(link, idx, f_name)
+                return link, idx, f_reprog, get_name(link, idx, f_name) or "keyboard"
     return None
 
 
@@ -431,3 +442,23 @@ def log_tail(n=80):
             return [ln.rstrip("\n")[:200] for ln in f.readlines()[-n:]]
     except OSError:
         return []
+
+
+def macos_secure_input():
+    """(pid, app name) of the process holding macOS Secure Event Input, or None.
+    While any app holds it, macOS refuses writes to keyboards."""
+    if sys.platform != "darwin":
+        return None
+    import subprocess
+    try:
+        out = subprocess.run(["/usr/sbin/ioreg", "-l", "-w", "0", "-d", "4"],
+                             capture_output=True, timeout=10).stdout.decode(errors="replace")
+        m = re.search(r'"kCGSSessionSecureInputPID"\s*=\s*(\d+)', out)
+        if not m:
+            return None
+        pid = int(m.group(1))
+        name = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "comm="], capture_output=True,
+                              timeout=5).stdout.decode(errors="replace").strip()
+        return pid, os.path.basename(name) or f"process {pid}"
+    except Exception:
+        return None

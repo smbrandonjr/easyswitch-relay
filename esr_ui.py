@@ -630,9 +630,11 @@ class SettingsApp:
         self.dev_tree.delete(*self.dev_tree.get_children())
         es_notes = []
         for d in st.get("devices", []) if st.get("fresh") else []:
+            here = "no"
+            if d["present"]:
+                here = "yes (blocked)" if d.get("blocked") else "yes"
             self.dev_tree.insert("", "end", text=d["name"], values=(
-                d["type"], "yes" if d["present"] else "no",
-                d["channel"] if d["channel"] else "?"))
+                d["type"], here, d["channel"] if d["channel"] else "?"))
             if d["type"] == "keyboard":
                 es_notes.append(
                     f"{d['name']}: its Easy-Switch keys "
@@ -640,6 +642,13 @@ class SettingsApp:
                        if d.get("easy_switch_divertable") else
                        "can't be taken over (keyboard firmware), so use network follow "
                        "and/or shortcut keys."))
+        si = st.get("secure_input") if st.get("fresh") else None
+        if si:
+            es_notes.insert(0, f"\u26a0 macOS Secure Input is on, held by {si.get('app')} "
+                               f"(pid {si.get('pid')}). While it's on, macOS doesn't let any app "
+                               "talk to the keyboard, so shortcut keys won't work on this Mac "
+                               "(follow still does). Turn off Terminal > Secure Keyboard Entry, "
+                               "or close the password field or app holding it.")
         if sys.platform == "darwin" and st.get("fresh") and st.get("input_monitoring") is False:
             es_notes.insert(0, "\u26a0 The relay doesn't have Input Monitoring permission, so it "
                                "can't see the keyboard. Turn on EasySwitch Relay in System "

@@ -56,6 +56,7 @@ class Device:
         self.next_ping = 0.0
         self.ping_every = PING_ABSENT_EVERY
         self.pressed = set()
+        self.blocked = False          # macOS Secure Input: here, but writes are refused
         self.diverted = set()
         self.refused = {}            # cid -> reason
         self.last_here = 0.0
@@ -65,7 +66,7 @@ class Device:
 
     def to_status(self):
         return {"name": self.name, "type": self.type, "present": self.present,
-                "last_seen": self.last_seen_wall,
+                "blocked": self.blocked, "last_seen": self.last_seen_wall,
                 "channel": None if self.channel is None else self.channel + 1,
                 "hosts": self.nb_hosts,
                 "easy_switch_divertable": bool(set(HOST_KEYS) & self.divertable()),
@@ -91,6 +92,8 @@ class Relay:
                   "perm": -PERM_CHECK_EVERY}
         self.input_monitoring = None          # macOS: does THIS relay have the permission?
         self.retired = []                     # macOS: stale connections kept open, unused
+        self.secure_input = None              # macOS: (pid, app) holding Secure Input
+        self.known = self.load_known()        # product string -> what that device is
         if not probe_only:
             self.restart_net()
 
@@ -120,6 +123,52 @@ class Relay:
         if self.net and self.net.sock:
             self.net.send(mtype, **fields)
 
+    # ------------------------------------------------------- known devices
+    def known_path(self):
+        return os.path.join(H.DATA_DIR, "devices.json")
+
+    def load_known(self):
+        try:
+            with open(self.known_path(), encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def remember(self, link, dev):
+        """Remember which connection (by its product string) is which device, so
+        on a Mac its arrival can be recognised even when macOS blocks writes."""
+        if link.is_receiver or not link.product:
+            return
+        entry = {"name": dev.name, "type": dev.type, "channel": dev.channel,
+                 "hosts": dev.nb_hosts}
+        if self.known.get(link.product) != entry:
+            self.known[link.product] = entry
+            try:
+                os.makedirs(H.DATA_DIR, exist_ok=True)
+                with open(self.known_path(), "w", encoding="utf-8") as f:
+                    json.dump(self.known, f)
+            except OSError:
+                pass
+
+    def arrive_blocked(self, link):
+        """macOS refused to let us talk to this device (Secure Input), but its
+        Bluetooth connection just appeared, so it IS here. If we know what it is,
+        count it as present: that's all 'follow' needs."""
+        k = self.known.get(link.product)
+        if not k or k.get("type") not in ("keyboard", "mouse"):
+            return None
+        dev = self.devices.get(k["name"]) or Device(k["name"])
+        dev.type, dev.channel, dev.nb_hosts = k["type"], k["channel"], k.get("hosts", 3)
+        dev.link_key, dev.idx = link.key, H.BT_INDEX
+        dev.blocked = True
+        self.devices[dev.name] = dev
+        self.by_addr[(link.key, H.BT_INDEX)] = dev.name
+        H.log(f"{dev.name} connected here, but macOS is blocking access to it "
+              f"(Secure Input); follow still works, shortcut keys don't until it's off")
+        self.mark_alive(dev, reconnect=True, blocked=True)
+        return dev
+
     # ---------------------------------------------------------------- devices
     def probe(self, link, idx):
         """Identify the device at (link, idx). Returns a Device or None."""
@@ -130,7 +179,11 @@ class Relay:
         if not info:
             return None
         f_name = H.get_feature(link, idx, H.F_NAME)
-        name = H.get_name(link, idx, f_name) if f_name else f"device {idx:#04x}"
+        if not f_name:
+            return None
+        name = H.get_name(link, idx, f_name)
+        if not name:
+            return None                     # don't record half-read names; try again later
         dev = self.devices.get(name) or Device(name)
         dev.type = H.get_type(link, idx, f_name) if f_name else "other"
         dev.link_key, dev.idx, dev.f_host = link.key, idx, f_host
@@ -140,7 +193,9 @@ class Relay:
         if dev.type == "keyboard" and dev.f_reprog and not dev.controls:
             dev.controls = H.list_controls(link, idx, dev.f_reprog)
         new = name not in self.devices
+        dev.blocked = False
         self.devices[name] = dev
+        self.remember(link, dev)
         self.by_addr[(link.key, idx)] = name
         self.unknown_next.pop((link.key, idx), None)
         if new:
@@ -154,7 +209,14 @@ class Relay:
         self.mark_alive(dev, reconnect=True)
         return dev
 
-    def mark_alive(self, dev, reconnect=False):
+    def mark_alive(self, dev, reconnect=False, blocked=False):
+        if dev.blocked and not blocked:
+            # A real reply: macOS lets us talk to it again. Re-identify it fully.
+            link = self.links.get(dev.link_key)
+            dev.blocked = False
+            if link and dev.f_host is None:
+                self.probe(link, dev.idx)
+                return
         was = dev.present
         dev.present = True
         dev.last_reply = time.monotonic()
@@ -180,9 +242,13 @@ class Relay:
         now = time.monotonic()
         for dev in self.devices.values():
             link = self.links.get(dev.link_key)
-            gone = link is None or not link.alive or now - dev.last_reply > ABSENT_AFTER
+            if dev.blocked:      # writes are refused, so only the connection itself counts
+                gone = link is None or not link.alive
+            else:
+                gone = link is None or not link.alive or now - dev.last_reply > ABSENT_AFTER
             if dev.present and gone:
                 dev.present = False
+                dev.blocked = False
                 dev.pressed.clear()
                 dev.diverted.clear()
                 dev.ping_every = PING_ABSENT_EVERY
@@ -233,6 +299,8 @@ class Relay:
             for idx in (H.RECEIVER_SLOTS if link.is_receiver else [H.BT_INDEX]):
                 found = bool(self.probe(link, idx)) or found
             if not found and not link.is_receiver:
+                if sys.platform == "darwin" and link.refused() and self.arrive_blocked(link):
+                    continue
                 H.log(f"  {link.product or 'device'} didn't answer yet: {H.last_error}")
 
     def reopen_quiet(self):
@@ -246,6 +314,8 @@ class Relay:
             link = self.links.get(dev.link_key)
             if not link or not link.alive or dev.present or now < dev.next_reopen:
                 continue
+            if dev.blocked or link.refused(60):
+                continue                      # refused by macOS, not stale: reopening won't help
             if now - dev.last_reply < REOPEN_FIRST:
                 continue
             dev.next_reopen = now + dev.reopen_wait
@@ -269,7 +339,7 @@ class Relay:
 
     def apply_divert(self, dev, report=False):
         link = self.links.get(dev.link_key)
-        if not link or not dev.f_reprog:
+        if not link or not dev.f_reprog or dev.blocked:
             return
         want = self.wanted_keys(dev)
         for cid in sorted(dev.diverted - set(want)):
@@ -316,7 +386,9 @@ class Relay:
     # -------------------------------------------------------------- switching
     def set_host(self, dev, ch):
         link = self.links.get(dev.link_key)
-        return bool(link) and link.send(dev.idx, dev.f_host, 1, [ch])
+        if not link or dev.f_host is None:
+            return False
+        return link.send(dev.idx, dev.f_host, 1, [ch])
 
     def switch_all(self, ch, why):
         here = [d for d in self.devices.values() if d.present]
@@ -405,6 +477,30 @@ class Relay:
             self.save_peer_log(msg, who)
         elif t == "update":
             self.remote_update(who)
+
+    def watch_secure_input(self, now):
+        """macOS: while some app holds Secure Input, writes to keyboards are refused.
+        Find out who holds it, so the log and Status tab can say so plainly."""
+        refusing = any(lk.refused(30) for lk in self.links.values())
+        if not refusing and self.secure_input is None:
+            return
+        if now - self.t.get("secure", -999) < 30:
+            return
+        self.t["secure"] = now
+        holder = H.macos_secure_input() if refusing else None
+        if holder != self.secure_input:
+            self.secure_input = holder
+            self.t["status"] = 0.0
+            if holder:
+                H.log(f"macOS Secure Input is on, held by {holder[1]} (pid {holder[0]}). "
+                      "While it's on, macOS blocks software from talking to keyboards. "
+                      "Common causes: Terminal's 'Secure Keyboard Entry', a focused password "
+                      "field, password managers.")
+            elif refusing:
+                H.log("macOS is refusing writes to the keyboard, but no app reports holding "
+                      "Secure Input")
+            else:
+                H.log("macOS Secure Input is off again")
 
     def check_update_request(self):
         """The settings window asks the other computers to update by creating a
@@ -527,6 +623,8 @@ class Relay:
         st = {"pid": os.getpid(), "version": H.__version__, "updated": time.time(),
               "computer": self.cfg["computer_name"],
               "input_monitoring": self.input_monitoring,
+              "secure_input": ({"pid": self.secure_input[0], "app": self.secure_input[1]}
+                               if self.secure_input else None),
               "devices": [d.to_status() for d in self.devices.values()],
               "network": {"enabled": bool(self.net),
                           "listening": bool(self.net and self.net.sock),
@@ -567,6 +665,8 @@ class Relay:
                 self.reload_config()
                 self.check_log_request()
                 self.check_update_request()
+            if sys.platform == "darwin":
+                self.watch_secure_input(now)
             if sys.platform == "darwin" and now - self.t["perm"] > PERM_CHECK_EVERY:
                 self.t["perm"] = now
                 im = H.macos_input_monitoring(request_access=False)
