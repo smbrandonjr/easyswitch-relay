@@ -3,7 +3,7 @@
 Keeps a Logitech keyboard and mouse (for example **MX Keys** and **MX Master 3S**)
 on the same computer, so you never type into the wrong one.
 
-Version 1.1.1 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
+Version 1.1.2 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
 
 ---
 
@@ -82,6 +82,11 @@ EasySwitch Relay may use your network. Allow it on **private** networks.
 The **Status** tab shows the devices connected here, the other computers heard on
 the network, and the last switch. **Open log** shows the details.
 
+**Get logs from other computers** fetches each paired computer's recent log over the
+signed network and saves it in the `peer-logs` folder next to your settings. That way
+you can read a Mac's log from a PC, or the other way round. Only your paired computers
+can request or send logs.
+
 | Symptom | What to do |
 |---|---|
 | Status says the relay isn't running | Click **Start relay**. |
@@ -89,7 +94,7 @@ the network, and the last switch. **Open log** shows the details.
 | Mouse doesn't follow | Is the computer that has the mouse awake, with the relay running? Check its Status tab. |
 | A shortcut key does nothing | Set it again on the Shortcut keys tab while the keyboard is connected to that computer. |
 | **Set...** says no key press was seen | Use a media key on the top row (volume, play/pause). If the keyboard is in F1–F12 mode, hold Fn while pressing it. Still nothing? Run the key test below and send the output. |
-| Mac: no devices found | Turn on Input Monitoring for EasySwitch Relay, then reopen the settings. |
+| Mac: no devices found, or the keyboard shows "Connected here: no" while you're typing on it | Turn on Input Monitoring for EasySwitch Relay (the Status tab warns if it's off), then reopen the settings. |
 
 **Device check from a terminal.** These write to the log and print the result.
 

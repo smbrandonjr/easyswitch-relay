@@ -248,6 +248,8 @@ class SettingsApp:
         ttk.Button(row, text="Open log", command=lambda: open_path(H.LOG_PATH)).pack(side="left")
         ttk.Button(row, text="Open settings folder",
                    command=lambda: open_path(H.DATA_DIR)).pack(side="left", padx=8)
+        ttk.Button(row, text="Get logs from other computers",
+                   command=self.on_peer_logs).pack(side="left")
 
     def _build_follow(self):
         t = self.tab_follow
@@ -411,6 +413,18 @@ class SettingsApp:
         self.saved_lbl.configure(text="Pairing code copied.")
         self.root.after(3000, lambda: self.saved_lbl.configure(text=""))
 
+    def on_peer_logs(self):
+        try:
+            os.makedirs(H.DATA_DIR, exist_ok=True)
+            open(H.LOGREQ_FLAG, "w").close()
+        except OSError as e:
+            messagebox.showerror("EasySwitch Relay", f"Couldn't request logs: {e}")
+            return
+        self.saved_lbl.configure(text="Asked the other computers for their logs...")
+        self.root.after(4000, lambda: (os.makedirs(H.PEER_LOG_DIR, exist_ok=True),
+                                       open_path(H.PEER_LOG_DIR),
+                                       self.saved_lbl.configure(text="")))
+
     def on_start(self):
         if start_relay():
             self.state_lbl.configure(text="Starting the relay...")
@@ -484,6 +498,10 @@ class SettingsApp:
                        if d.get("easy_switch_divertable") else
                        "can't be taken over (keyboard firmware), so use network follow "
                        "and/or shortcut keys."))
+        if sys.platform == "darwin" and st.get("fresh") and st.get("input_monitoring") is False:
+            es_notes.insert(0, "\u26a0 The relay doesn't have Input Monitoring permission, so it "
+                               "can't see the keyboard. Turn on EasySwitch Relay in System "
+                               "Settings > Privacy & Security > Input Monitoring.")
         self.es_lbl.configure(text="\n".join(es_notes))
 
         self.peer_tree.delete(*self.peer_tree.get_children())

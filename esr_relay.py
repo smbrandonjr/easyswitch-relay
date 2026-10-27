@@ -33,6 +33,9 @@ STATUS_EVERY = 2.0
 HELLO_EVERY = 10.0
 HERE_DEBOUNCE = 2.0
 CAPTURE_FRESH = 5.0           # s; the settings window is capturing a key
+PERM_CHECK_EVERY = 30.0       # s; macOS Input Monitoring status
+REOPEN_FIRST = 8.0            # s; macOS: reopen a quiet device's connection after this...
+REOPEN_MAX = 300.0            # ...backing off to at most every 5 minutes
 
 
 class Device:
@@ -47,6 +50,9 @@ class Device:
         self.controls = []           # keyboards: [(cid, task, flags)]
         self.present = False
         self.last_reply = 0.0
+        self.last_seen_wall = 0.0
+        self.reopen_wait = REOPEN_FIRST
+        self.next_reopen = 0.0
         self.next_ping = 0.0
         self.ping_every = PING_ABSENT_EVERY
         self.pressed = set()
@@ -59,6 +65,7 @@ class Device:
 
     def to_status(self):
         return {"name": self.name, "type": self.type, "present": self.present,
+                "last_seen": self.last_seen_wall,
                 "channel": None if self.channel is None else self.channel + 1,
                 "hosts": self.nb_hosts,
                 "easy_switch_divertable": bool(set(HOST_KEYS) & self.divertable()),
@@ -80,7 +87,10 @@ class Relay:
         self.net_sig = None
         self.last_switch = ""
         self.hello_sent = False
-        self.t = {"scan": 0.0, "divert": 0.0, "status": 0.0, "hello": 0.0, "cfg": 0.0}
+        self.t = {"scan": 0.0, "divert": 0.0, "status": 0.0, "hello": 0.0, "cfg": 0.0,
+                  "perm": -PERM_CHECK_EVERY}
+        self.input_monitoring = None          # macOS: does THIS relay have the permission?
+        self.retired = []                     # macOS: stale connections kept open, unused
         if not probe_only:
             self.restart_net()
 
@@ -148,6 +158,8 @@ class Relay:
         was = dev.present
         dev.present = True
         dev.last_reply = time.monotonic()
+        dev.last_seen_wall = time.time()
+        dev.reopen_wait = REOPEN_FIRST
         dev.ping_every = PING_PRESENT_EVERY
         if not was or reconnect:
             self.on_arrival(dev, was)
@@ -199,17 +211,48 @@ class Relay:
                 link.send(idx, H.F_ROOT, 1, [0, 0, PING_TAG])
                 self.unknown_next[k] = now + PING_UNKNOWN_EVERY
 
+    def _forget_link(self, k):
+        for a in [a for a in self.by_addr if a[0] == k]:
+            self.by_addr.pop(a)
+        for a in [a for a in self.unknown_next if a[0] == k]:
+            self.unknown_next.pop(a)
+
     def rescan(self):
         for k in [k for k, l in self.links.items() if not l.alive]:
-            self.links.pop(k).shutdown()
-            for a in [a for a in self.by_addr if a[0] == k]:
-                self.by_addr.pop(a)
-            for a in [a for a in self.unknown_next if a[0] == k]:
-                self.unknown_next.pop(a)
+            link = self.links.pop(k)
+            H.log(f"connection closed: {link.product or 'device'} (it went away)")
+            link.shutdown()
+            self._forget_link(k)
+        if sys.platform == "darwin":
+            self.reopen_quiet()
         for key in H.scan(self.links):
             link = self.links[key]
+            H.log(f"connection opened: {link.product or 'device'} "
+                  f"({'receiver' if link.is_receiver else 'bluetooth'})")
+            found = False
             for idx in (H.RECEIVER_SLOTS if link.is_receiver else [H.BT_INDEX]):
-                self.probe(link, idx)
+                found = bool(self.probe(link, idx)) or found
+            if not found and not link.is_receiver:
+                H.log(f"  {link.product or 'device'} didn't answer yet: {H.last_error}")
+
+    def reopen_quiet(self):
+        """macOS: a Bluetooth device that comes back can keep the old, now
+        unresponsive connection. If a known device has been quiet for a while
+        but its connection still looks open, open a fresh one (with back-off).
+        The old one is kept open but unused: closing it isn't safe while its
+        reader thread is blocked in it."""
+        now = time.monotonic()
+        for dev in self.devices.values():
+            link = self.links.get(dev.link_key)
+            if not link or not link.alive or dev.present or now < dev.next_reopen:
+                continue
+            if now - dev.last_reply < REOPEN_FIRST:
+                continue
+            dev.next_reopen = now + dev.reopen_wait
+            dev.reopen_wait = min(dev.reopen_wait * 2, REOPEN_MAX)
+            self.retired.append(self.links.pop(dev.link_key))
+            self._forget_link(dev.link_key)
+            H.log(f"{dev.name}: no answer on its connection; opening a fresh one")
 
     # ------------------------------------------------------------------- keys
     def wanted_keys(self, dev):
@@ -356,6 +399,49 @@ class Relay:
             self.adopt_keys(msg, who)
         elif t == "hello" and msg.get("first") and self.cfg["sync_keys"]:
             self.share_keys()
+        elif t == "logreq" and isinstance(msg.get("id"), str):
+            self.send_logs(msg["id"])
+        elif t == "logtail":
+            self.save_peer_log(msg, who)
+
+    def check_log_request(self):
+        """The settings window (or support) asks for the other computers' logs by
+        creating a request file; replies are saved in peer-logs/."""
+        if not os.path.exists(H.LOGREQ_FLAG):
+            return
+        try:
+            os.remove(H.LOGREQ_FLAG)
+        except OSError:
+            return
+        if self.net and self.net.sock:
+            H.log("asking the other computers for their recent logs")
+            self.net_send("logreq")
+
+    def send_logs(self, to):
+        lines = H.log_tail(80)
+        chunks = [lines[i:i + 8] for i in range(0, len(lines), 8)] or [[]]
+        status = {"version": H.__version__, "platform": sys.platform,
+                  "input_monitoring": self.input_monitoring,
+                  "devices": [[d.name, d.type, d.present, d.channel]
+                              for d in self.devices.values()]}
+        for i, c in enumerate(chunks):
+            self.net_send("logtail", to=to, seq=i, total=len(chunks), lines=c,
+                          status=status if i == 0 else None)
+            time.sleep(0.02)
+
+    def save_peer_log(self, msg, who):
+        if not self.net or msg.get("to") != self.net.iid:
+            return
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in who)[:40] or "peer"
+        os.makedirs(H.PEER_LOG_DIR, exist_ok=True)
+        path = os.path.join(H.PEER_LOG_DIR, f"{safe}.txt")
+        lines = [str(x)[:200] for x in (msg.get("lines") or [])]
+        mode = "w" if msg.get("seq") == 0 else "a"
+        with open(path, mode, encoding="utf-8") as f:
+            if mode == "w":
+                f.write(f"# log from {who}, received {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"# status: {json.dumps(msg.get('status'))}\n")
+            f.write("\n".join(lines) + ("\n" if lines else ""))
 
     def adopt_keys(self, msg, who):
         keys, upd = msg.get("keys"), msg.get("updated", 0)
@@ -399,6 +485,7 @@ class Relay:
     def write_status(self):
         st = {"pid": os.getpid(), "version": H.__version__, "updated": time.time(),
               "computer": self.cfg["computer_name"],
+              "input_monitoring": self.input_monitoring,
               "devices": [d.to_status() for d in self.devices.values()],
               "network": {"enabled": bool(self.net),
                           "listening": bool(self.net and self.net.sock),
@@ -437,6 +524,15 @@ class Relay:
             if now - self.t["cfg"] > 1.0:
                 self.t["cfg"] = now
                 self.reload_config()
+                self.check_log_request()
+            if sys.platform == "darwin" and now - self.t["perm"] > PERM_CHECK_EVERY:
+                self.t["perm"] = now
+                im = H.macos_input_monitoring(request_access=False)
+                if im != self.input_monitoring:
+                    H.log(f"Input Monitoring for the relay: "
+                          f"{ {True: 'allowed', False: 'NOT allowed', None: 'unknown'}[im] }")
+                    self.input_monitoring = im
+                    self.t["status"] = 0.0
             if now - self.t["hello"] > HELLO_EVERY:
                 first = not self.hello_sent
                 self.hello_sent = True

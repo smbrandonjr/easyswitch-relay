@@ -15,7 +15,7 @@ import time
 
 import hid
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 if sys.platform == "darwin":
     # hidapi on macOS opens devices exclusively ("seize") by default, which can
@@ -60,6 +60,8 @@ LOG_PATH = os.path.join(LOG_DIR, "relay.log")
 STATUS_PATH = os.path.join(DATA_DIR, "status.json")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 CAPTURE_FLAG = os.path.join(DATA_DIR, "capturing")
+LOGREQ_FLAG = os.path.join(DATA_DIR, "request-logs")      # ask other computers for logs
+PEER_LOG_DIR = os.path.join(DATA_DIR, "peer-logs")
 LOG_MAX = 1_000_000
 
 # ----------------------------------------------------------------- logging
@@ -398,3 +400,12 @@ def release_keys(link, idx, f_reprog, cids):
 
 def describe_report(r):
     return " ".join(f"{b:02x}" for b in r[:12])
+
+
+def log_tail(n=80):
+    """The last n lines of this computer's relay log."""
+    try:
+        with open(LOG_PATH, encoding="utf-8", errors="replace") as f:
+            return [ln.rstrip("\n")[:200] for ln in f.readlines()[-n:]]
+    except OSError:
+        return []
