@@ -111,3 +111,49 @@ def diagnose():
     except OSError as e:
         H.log("could not save report:", e)
     return 0
+
+
+def keytest(seconds=20):
+    """Take over every usable key on the keyboard connected here, then print
+    everything the keyboard sends while you press keys."""
+    H.log(f"=== EasySwitch Relay {H.__version__} key test ({sys.platform}) ===")
+    links = {}
+    kb = H.find_keyboard(links)
+    if not kb:
+        H.log("No keyboard answered. Switch it to this computer, press a key, try again.")
+        return 1
+    link, idx, f_reprog, name = kb
+    controls = H.list_controls(link, idx, f_reprog)
+    tasks = {c: t for c, t, _f in controls}
+    cids = [c for c, _t, f in controls if f & H.DIVERTABLE]
+    H.log(f"{name}: {len(controls)} controls, {len(cids)} usable by software")
+    taken, refused = H.take_keys(link, idx, f_reprog, cids)
+    for c in taken:
+        H.log(f"  {c:#06x} {H.key_label(c, tasks.get(c)):<22} ready")
+    for c, why in refused.items():
+        H.log(f"  {c:#06x} {H.key_label(c, tasks.get(c)):<22} REFUSED: {why}")
+    H.log(f"Now press a few keys on the top row (volume, play/pause...), with and "
+          f"without Fn. Listening for {seconds} seconds...")
+    end = time.monotonic() + seconds
+    n = 0
+    try:
+        while time.monotonic() < end:
+            try:
+                key, r = H.reports.get(timeout=0.5)
+            except Exception:
+                continue
+            if key != link.key or not isinstance(r, list) or len(r) < 4 or r[1] != idx:
+                continue
+            n += 1
+            what = ""
+            if r[2] == f_reprog and r[3] == 0x00:
+                pressed = [(r[i] << 8) | r[i + 1] for i in range(4, min(len(r) - 1, 12), 2)]
+                pressed = [c for c in pressed if c]
+                what = ("  -> pressed: " + ", ".join(
+                    f"{c:#06x} ({H.key_label(c, tasks.get(c))})" for c in pressed)
+                        if pressed else "  -> released")
+            H.log(f"  received: {H.describe_report(r)}{what}")
+    finally:
+        H.release_keys(link, idx, f_reprog, taken)
+    H.log(f"Done: {n} reports from the keyboard. Keys handed back.")
+    return 0

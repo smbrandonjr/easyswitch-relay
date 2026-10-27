@@ -6,6 +6,7 @@ EasySwitch Relay: keep a Logitech keyboard and mouse on the same computer.
     easyswitch-relay --run        run the relay (started automatically at sign-in)
     easyswitch-relay --probe      check the devices connected here, then exit
     easyswitch-relay --diagnose   write a detailed device report (diagnose.txt)
+    easyswitch-relay --keytest    show what the keyboard sends when you press keys
     easyswitch-relay --version
 
 Modules:
@@ -32,11 +33,13 @@ def main():
                     help="check the devices connected here, print the result, and exit")
     ap.add_argument("--diagnose", action="store_true",
                     help="write a detailed device report (diagnose.txt next to the log)")
+    ap.add_argument("--keytest", action="store_true",
+                    help="show what the keyboard sends when you press keys (20 s)")
     ap.add_argument("--settings", action="store_true", help="open the settings window")
     ap.add_argument("--version", action="store_true", help="print the version and exit")
     args, _unknown = ap.parse_known_args()     # macOS may add its own arguments
 
-    console = args.probe or args.version or args.diagnose
+    console = args.probe or args.version or args.diagnose or args.keytest
     if console and not os.environ.get("EASYSWITCH_QUIET"):
         H.attach_parent_console()
     if args.version:
@@ -45,7 +48,7 @@ def main():
         print(f"easyswitch-relay {H.__version__} (hidapi {hv})")
         return 0
 
-    if args.probe or args.diagnose:
+    if args.probe or args.diagnose or args.keytest:
         H.SW_ID = 0x0B          # the background relay uses 0x0A; keep replies apart
         H.open_log()
         H.log(f"easyswitch relay {H.__version__} ({sys.platform}, log: {H.LOG_PATH})")
@@ -53,6 +56,9 @@ def main():
         if args.diagnose:
             from esr_diag import diagnose
             return diagnose()
+        if args.keytest:
+            from esr_diag import keytest
+            return keytest()
         from esr_relay import probe_check
         return probe_check()
 

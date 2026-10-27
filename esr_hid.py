@@ -15,7 +15,7 @@ import time
 
 import hid
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 if sys.platform == "darwin":
     # hidapi on macOS opens devices exclusively ("seize") by default, which can
@@ -358,3 +358,43 @@ def key_label(cid, task=None):
     if task in TASK_NAMES:
         return f"{TASK_NAMES[task]} key"
     return f"Key {cid:#06x}"
+
+
+def find_keyboard(links):
+    """(link, idx, f_reprog, name) for a keyboard connected here, or None."""
+    scan(links)
+    for link in list(links.values()):
+        if not link.alive:
+            continue
+        for idx in (RECEIVER_SLOTS if link.is_receiver else [BT_INDEX]):
+            f_name = get_feature(link, idx, F_NAME)
+            if not f_name or get_type(link, idx, f_name) != "keyboard":
+                continue
+            f_reprog = get_feature(link, idx, F_REPROG)
+            if f_reprog:
+                return link, idx, f_reprog, get_name(link, idx, f_name)
+    return None
+
+
+def take_keys(link, idx, f_reprog, cids, timeout=1.0):
+    """Ask the keyboard to report these keys to us. Returns (accepted, refused)
+    where refused maps cid -> reason. Every request is confirmed."""
+    ok, bad = [], {}
+    for c in cids:
+        r = request(link, idx, f_reprog, 3, [c >> 8, c & 0xFF, DIVERT, 0, 0], timeout)
+        if r is None:
+            r = request(link, idx, f_reprog, 3, [c >> 8, c & 0xFF, DIVERT, 0, 0], timeout)
+        if r is None:
+            bad[c] = last_error
+        else:
+            ok.append(c)
+    return ok, bad
+
+
+def release_keys(link, idx, f_reprog, cids):
+    for c in cids:
+        link.send(idx, f_reprog, 3, [c >> 8, c & 0xFF, UNDIVERT, 0, 0])
+
+
+def describe_report(r):
+    return " ".join(f"{b:02x}" for b in r[:12])

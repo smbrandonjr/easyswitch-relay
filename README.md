@@ -3,7 +3,7 @@
 Keeps a Logitech keyboard and mouse (for example **MX Keys** and **MX Master 3S**)
 on the same computer, so you never type into the wrong one.
 
-Version 1.1.0 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
+Version 1.1.1 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
 
 ---
 
@@ -88,14 +88,15 @@ the network, and the last switch. **Open log** shows the details.
 | No other computers listed | Same pairing code and same port on each? Firewall prompt allowed? Some networks block broadcasts: enter the other computers' addresses under Follow → Advanced. |
 | Mouse doesn't follow | Is the computer that has the mouse awake, with the relay running? Check its Status tab. |
 | A shortcut key does nothing | Set it again on the Shortcut keys tab while the keyboard is connected to that computer. |
+| **Set...** says no key press was seen | Use a media key on the top row (volume, play/pause). If the keyboard is in F1–F12 mode, hold Fn while pressing it. Still nothing? Run the key test below and send the output. |
 | Mac: no devices found | Turn on Input Monitoring for EasySwitch Relay, then reopen the settings. |
 
 **Device check from a terminal.** These write to the log and print the result.
 
-| | Check devices | Detailed report (`diagnose.txt` next to the log) |
-|---|---|---|
-| Windows | `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --probe` | `... --diagnose` |
-| Mac | `"$HOME/Applications/EasySwitch Relay.app/Contents/MacOS/easyswitch-relay" --probe` | `... --diagnose` |
+| | Check devices | Detailed report (`diagnose.txt` next to the log) | Key test (prints what each key press sends) |
+|---|---|---|---|
+| Windows | `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --probe` | `... --diagnose` | `... --keytest` |
+| Mac | `"$HOME/Applications/EasySwitch Relay.app/Contents/MacOS/easyswitch-relay" --probe` | `... --diagnose` | `... --keytest` |
 
 **Where files live:**
 

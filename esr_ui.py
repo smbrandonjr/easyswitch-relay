@@ -92,20 +92,6 @@ class KeyCapture:
         except OSError:
             pass
 
-    def find_keyboard(self):
-        H.scan(self.links)
-        for link in self.links.values():
-            if not link.alive:
-                continue
-            for idx in (H.RECEIVER_SLOTS if link.is_receiver else [H.BT_INDEX]):
-                f_name = H.get_feature(link, idx, H.F_NAME)
-                if not f_name or H.get_type(link, idx, f_name) != "keyboard":
-                    continue
-                f_reprog = H.get_feature(link, idx, H.F_REPROG)
-                if f_reprog:
-                    return link, idx, f_reprog, H.get_name(link, idx, f_name)
-        return None
-
     def run(self):
         try:
             self._run()
@@ -116,7 +102,7 @@ class KeyCapture:
 
     def _run(self):
         self._flag(True)
-        kb = self.find_keyboard()
+        kb = H.find_keyboard(self.links)
         if not kb:
             self.q.put(("error", "No keyboard is connected to this computer right now. "
                                  "Switch the keyboard here (and press a key to wake it), "
@@ -129,11 +115,19 @@ class KeyCapture:
         if not cids:
             self.q.put(("error", f"{kb_name} doesn't let software use any of its keys."))
             return
-        for c in cids:
-            link.send(idx, f_reprog, 3, [c >> 8, c & 0xFF, H.DIVERT, 0, 0])
-        self.q.put(("ready", kb_name))
+        H.log(f"key capture: asking {kb_name} for {len(cids)} keys: "
+              + ", ".join(f"{c:#06x}" for c in cids))
+        taken, refused = H.take_keys(link, idx, f_reprog, cids)
+        for c, why in refused.items():
+            H.log(f"key capture: {c:#06x} refused: {why}")
+        if not taken:
+            self.q.put(("error", f"{kb_name} refused every key ({next(iter(refused.values()))}). "
+                                 "Use Open log on the Status tab and send me the log."))
+            return
+        H.log(f"key capture: {len(taken)} keys ready, waiting for a press")
+        self.q.put(("ready", (kb_name, len(taken), len(cids))))
         end = time.monotonic() + 20
-        got = None
+        got, seen = None, 0
         try:
             while time.monotonic() < end and not self.cancelled and got is None:
                 self._flag(True)
@@ -141,19 +135,27 @@ class KeyCapture:
                     key, r = H.reports.get(timeout=0.5)
                 except queue.Empty:
                     continue
-                if key == link.key and isinstance(r, list) and len(r) >= 6 and \
-                        r[1] == idx and r[2] == f_reprog and r[3] == 0x00:
-                    pressed = [(r[i] << 8) | r[i + 1] for i in range(4, 12, 2)]
+                if key != link.key or not isinstance(r, list) or len(r) < 4 or r[1] != idx:
+                    continue
+                if seen < 40:                 # what the keyboard actually sends (for support)
+                    seen += 1
+                    H.log("key capture: received", H.describe_report(r))
+                if r[2] == f_reprog and r[3] == 0x00 and len(r) >= 6:   # key event
+                    pressed = [(r[i] << 8) | r[i + 1] for i in range(4, min(len(r) - 1, 12), 2)]
                     pressed = [c for c in pressed if c]
                     if pressed:
                         got = pressed[0]
         finally:
-            for c in cids:     # hand them back; the relay re-takes its own keys in ~2 s
-                link.send(idx, f_reprog, 3, [c >> 8, c & 0xFF, H.UNDIVERT, 0, 0])
+            H.release_keys(link, idx, f_reprog, taken)   # the relay re-takes its own in ~2 s
         if got is not None:
+            H.log(f"key capture: got {got:#06x}")
             self.q.put(("key", {"cid": got, "label": H.key_label(got, tasks.get(got))}))
         elif not self.cancelled:
-            self.q.put(("error", "No key press was seen. Try again."))
+            H.log(f"key capture: no key press seen ({seen} reports from the keyboard)")
+            self.q.put(("error", "No key press was seen. Try a media key on the top row "
+                                 "(volume, play/pause). If your keyboard is in F1-F12 mode, "
+                                 "hold Fn while pressing it. If that still fails, use Open "
+                                 "log on the Status tab and send me the log."))
 
 
 # ------------------------------------------------------------------- window
@@ -437,8 +439,11 @@ class SettingsApp:
             return
         ch = self.capture_ch
         if kind == "ready":
+            name, n_ok, n_all = val
             self.capture_lbl.configure(text=(
-                f"Press the key on your {val} to use for channel {ch} (within 20 seconds)."))
+                f"Press the key on your {name} to use for channel {ch} (within 20 seconds). "
+                f"Media keys on the top row work best; if the keyboard is in F1-F12 mode, "
+                f"hold Fn while pressing. ({n_ok} of {n_all} usable keys are ready.)"))
             self.root.after(100, self.poll_capture)
             return
         self.capture = None
