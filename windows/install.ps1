@@ -10,7 +10,11 @@
     4. checks your keyboard and mouse and prints the result
     5. starts the relay and opens the settings window
   Your settings are kept when you update.
+
+  -Update      used by the app's own updater: no device check, runs without a window
+  -NoSettings  don't open the settings window at the end (unattended updates)
 #>
+param([switch]$Update, [switch]$NoSettings)
 $ErrorActionPreference = 'Stop'
 $Src      = $PSScriptRoot
 $Dest     = Join-Path $env:LOCALAPPDATA 'Programs\EasySwitchRelay'
@@ -20,6 +24,10 @@ $RunKey   = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $LogPath  = Join-Path $env:LOCALAPPDATA 'EasySwitchRelay\relay.log'
 $Shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'EasySwitch Relay.lnk'
 
+if ($Update) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $LogPath) | Out-Null
+    Start-Transcript -Path (Join-Path (Split-Path $LogPath) 'update.log') -Append | Out-Null
+}
 if (-not (Test-Path (Join-Path $Src 'easyswitch-relay.exe'))) {
     throw "easyswitch-relay.exe not found next to this script. Run install.ps1 from the built folder (dist\EasySwitchRelay-windows-x64)."
 }
@@ -28,8 +36,12 @@ if ((Resolve-Path $Src).Path.TrimEnd('\') -ieq $Dest.TrimEnd('\')) {
 }
 
 # Stop a running copy so its files can be replaced.
-Get-Process -Name 'easyswitch-relay' -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+$running = Get-Process -Name 'easyswitch-relay' -ErrorAction SilentlyContinue
+if ($running) {
+    $running | Stop-Process -Force
+    $running | Wait-Process -Timeout 15 -ErrorAction SilentlyContinue   # files stay locked until exit
+}
+Start-Sleep -Milliseconds 300
 
 # Copy the app (everything except the scripts).
 if (Test-Path $Dest) { Remove-Item -Recurse -Force $Dest }
@@ -78,6 +90,7 @@ try {
 }
 
 # Check the devices. They must be connected to THIS PC right now.
+if (-not $Update) {
 Write-Host ""
 Write-Host "Checking your keyboard and mouse (they need to be connected to this PC)."
 Write-Host "Move the mouse and press a key now so both are awake (this takes up to 10 seconds)..."
@@ -88,11 +101,13 @@ Remove-Item Env:\EASYSWITCH_QUIET
 if (Test-Path $LogPath) {
     Get-Content $LogPath | Select-Object -Skip $before | ForEach-Object { Write-Host "  $_" }
 }
+}
 
 # Start the relay now, then open the settings window.
 if ($useTask) { Start-ScheduledTask -TaskName $TaskName } else { Start-Process -FilePath $Exe -ArgumentList '--run' }
 Start-Sleep -Seconds 1
-Start-Process -FilePath $Exe
+if (-not $NoSettings) { Start-Process -FilePath $Exe }
+if ($Update) { Stop-Transcript | Out-Null }
 Write-Host ""
 Write-Host "EasySwitch Relay is installed and running. The settings window is open;"
 Write-Host "you can reopen it any time from the Start menu (EasySwitch Relay)."
