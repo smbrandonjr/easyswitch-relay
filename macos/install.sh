@@ -18,7 +18,8 @@ LOG="$LOG_DIR/relay.log"
 DOMAIN="gui/$(id -u)"
 
 check() {
-    echo "Checking your keyboard and mouse (they need to be connected to this Mac)..."
+    echo "Checking your keyboard and mouse (they need to be connected to this Mac)."
+    echo "Move the mouse and press a key now so both are awake (this takes up to 10 seconds)..."
     mkdir -p "$LOG_DIR"; touch "$LOG"
     local before; before=$(wc -l < "$LOG")
     # Launched through 'open' so macOS treats the app itself (not Terminal) as
