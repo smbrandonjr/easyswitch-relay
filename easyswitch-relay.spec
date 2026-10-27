@@ -4,11 +4,11 @@
 import re
 import sys
 
-VERSION = re.search(r'^__version__ = "(.+)"', open("easyswitch_relay.py").read(), re.M).group(1)
+VERSION = re.search(r'^__version__ = "(.+)"', open("esr_hid.py").read(), re.M).group(1)
 
 a = Analysis(
     ["easyswitch_relay.py"],
-    excludes=["tkinter", "unittest", "pydoc", "doctest"],
+    excludes=["unittest", "pydoc", "doctest"],     # tkinter is needed: settings window
 )
 pyz = PYZ(a.pure)
 exe = EXE(
@@ -17,7 +17,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="easyswitch-relay",
-    console=False,          # background app: no console window at login
+    console=False,          # no console window (the relay runs in the background)
     upx=False,              # UPX-packed binaries are an antivirus red flag
     codesign_identity=None, # macOS: ad-hoc signature (build.sh re-signs the bundle)
 )
@@ -31,7 +31,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleShortVersionString": VERSION,
             "CFBundleVersion": VERSION,
-            "LSUIElement": True,      # no Dock icon, no menu bar
+            "LSUIElement": True,      # no Dock icon for the background relay
+            "NSHumanReadableCopyright": "",
             "LSMinimumSystemVersion": "11.0",
         },
     )

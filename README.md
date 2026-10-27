@@ -1,153 +1,152 @@
 # EasySwitch Relay
 
-Press an Easy-Switch key (1, 2 or 3) on your **MX Keys** and your **MX Master 3S**
-switches to the same computer at the same moment. No more flipping the mouse over,
-and no more typing into the wrong machine.
+Keeps a Logitech keyboard and mouse (for example **MX Keys** and **MX Master 3S**)
+on the same computer, so you never type into the wrong one.
 
-Version 1.0.1 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
+Version 1.1.0 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
 
 ---
 
-## How it works
+## Two ways to switch
 
-- The relay asks the keyboard to send Easy-Switch presses to the computer instead
-  of acting on them itself.
-- When you press one, the relay tells the mouse to switch, then the keyboard.
-  The relay's part takes a few milliseconds; the rest is the devices reconnecting.
-- Nothing is saved on the keyboard or mouse. If the relay isn't running on a
-  computer, the keys simply go back to switching only the keyboard, so you can't
-  get locked out.
-- It talks only to the Logitech devices' own control channel. It never sees what
-  you type, makes no network connections, and needs no admin rights.
+| | **Follow (network)** | **Shortcut keys** |
+|---|---|---|
+| You press | the Easy-Switch keys, as usual (or the mouse's own button) | keys you choose, e.g. media keys you rarely use |
+| What happens | the keyboard switches; the mouse follows | both devices switch together |
+| Speed | the mouse arrives about 1–3 s after the keyboard | as fast as the devices can reconnect |
+| Needs | the same pairing code on every computer, same local network | nothing else (with Follow on, they also work when the mouse is elsewhere) |
 
-## Before you start
+You can use both at once. On keyboards whose firmware allows it (the regular MX Keys
+does; **MX Keys for Business does not**), the Easy-Switch keys themselves switch both
+devices together.
 
-1. **Use the same channel number for each computer on both devices.** For example,
-   Windows PC A = 1 on the keyboard *and* the mouse, Windows PC B = 2 on both, the
-   Mac = 3 on both. Re-pair anything that doesn't match. The relay's check will
-   tell you if a computer is on different numbers.
-2. **Uninstall Logi Options+ (and older Logi Options) on all three computers.**
-   They take over the same keys and will conflict.
-3. **Bolt receiver or Bluetooth both work.** A Logi Bolt receiver on each computer
-   switches a bit faster and has no warm-up gap (see "Day to day").
+## Install
 
-## 1. Build
+Download the zip for your system from the
+[latest release](../../releases/latest), unzip it, connect the keyboard and mouse to
+that computer, then:
 
-You build once per operating system, then copy the result to any other computer
-with that OS. Building needs Python 3.10–3.14 on the build machine only; the
-finished app runs without Python. Every build dependency is pinned to an exact
-version and checked against its published SHA-256 hash, and nothing is built from
-source during install.
-
-**Windows** (build on one PC, copy to the other):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File windows\build.ps1
-```
-
-This creates `dist\EasySwitchRelay-windows-x64.zip` (with a `.sha256` file next to it).
-
-**Mac:**
-
-```bash
-bash macos/build.sh
-```
-
-This creates `dist/EasySwitchRelay-macos-arm64.zip` (`x86_64` on an Intel Mac).
-The Mac's built-in Python is too old; install one from python.org or with
-`brew install python@3.12`.
-
-**Or build on GitHub, with no Python anywhere:** push this folder to a GitHub
-repository and run **Build** from the Actions tab. You get both zips, each with a
-signed record of how it was built that you can check with
-`gh attestation verify <zip> --repo <you>/<repo>`. The workflow builds for Apple
-Silicon Macs; for an Intel Mac, build on the Mac itself.
-
-## 2. Install (on each computer)
-
-Unzip the build, connect the keyboard and mouse to that computer, then run:
-
-| | Install | Re-check devices | Uninstall |
-|---|---|---|---|
-| Windows | `powershell -ExecutionPolicy Bypass -File install.ps1` | `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --probe` | `powershell -ExecutionPolicy Bypass -File uninstall.ps1` |
-| Mac | `bash install.sh` | `bash install.sh --check` | `bash uninstall.sh` |
+| | Install (also updates; settings are kept) | Uninstall |
+|---|---|---|
+| Windows | `powershell -ExecutionPolicy Bypass -File install.ps1` | `powershell -ExecutionPolicy Bypass -File uninstall.ps1` |
+| Mac | `bash install.sh` | `bash uninstall.sh` |
 
 The installer:
 
-- copies the app into your user folder (Windows: `%LOCALAPPDATA%\Programs\EasySwitchRelay`;
-  Mac: `~/Applications/EasySwitch Relay.app`);
-- sets it to start at sign-in and restart if it ever crashes;
-- checks your devices and prints the result;
-- starts the relay.
+- copies the app into your user folder;
+- sets the relay to start at sign-in and restart if it ever crashes;
+- checks your devices;
+- starts the relay and opens the **settings window**.
 
-Running the installer again updates the app in place.
+To reopen the settings later:
 
-**Mac only: Input Monitoring.** macOS asks for this the first time the relay runs,
-because the keyboard counts as an input device. Allow it under
-**System Settings → Privacy & Security → Input Monitoring → EasySwitch Relay**,
-then run `bash install.sh --check`. If you rebuild the app, macOS treats it as a
-new app, so you'll need to allow it again.
+- **Windows:** Start menu → **EasySwitch Relay**.
+- **Mac:** open **EasySwitch Relay** in your Applications folder (`~/Applications`).
 
-A good check result looks like:
+**Mac:**
 
-```
-found keyboard 'MX Keys' ...; this computer is channel 1 of 3
-found device   'MX Master 3S' ...; this computer is channel 1 of 3
-RESULT: OK. This computer is channel 1 on all devices.
-```
+- Allow **Input Monitoring** when asked (System Settings → Privacy & Security). The
+  keyboard counts as an input device.
+- If macOS asks whether the app may accept incoming network connections, choose
+  Allow. Network follow needs it.
+
+**Windows:** the first time network follow is on, Windows may ask whether
+EasySwitch Relay may use your network. Allow it on **private** networks.
+
+## Set up (once)
+
+1. **Same channel numbers:** each computer should be the same number on both devices,
+   for example Work PC = 1, Laptop = 2, Mac = 3. The Status tab shows each device's
+   channel here.
+2. **Follow tab**, on the first computer: click **Generate**, then **Copy**, then
+   **Save**.
+3. On each other computer: paste or type the same pairing code into its Follow tab,
+   then **Save**. Within about 10 seconds each computer lists the others on its
+   Status tab.
+4. **Shortcut keys tab** (optional): click **Set...** next to a channel and press
+   the key to use. Keys you rarely use are best; their normal action is replaced
+   while the relay runs. With "use the same keys on all my computers" on, you only
+   do this once.
 
 ## Day to day
 
-- **Press 1, 2 or 3 on the keyboard.** The mouse and keyboard move together.
-- **Pressing the key for the computer you're already on does nothing.** That's on
-  purpose.
-- **Bluetooth warm-up:** for a second or two after the devices arrive at a computer,
-  a press may move only the keyboard. Over a Bolt receiver this doesn't happen.
-- **Out of sync** (for example, the mouse was switched with its own button): flip
-  the mouse over and press its channel button once. You're back in step.
-- **A computer that's asleep or signed out** isn't running the relay, so from that
-  computer the keys switch only the keyboard.
+- Switch with the Easy-Switch keys as usual. The mouse follows.
+- Or press a shortcut key. Both devices switch together.
+- **Out of sync** (for example, a computer was asleep): press the Easy-Switch or
+  shortcut key again, or flip the mouse over and use its button.
+- **A computer that's asleep or signed out** isn't running the relay, so it can't
+  send the mouse anywhere. Wake it first.
 
 ## Troubleshooting
 
-**Log:** Windows `%LOCALAPPDATA%\EasySwitchRelay\relay.log`; Mac
-`~/Library/Logs/EasySwitchRelay/relay.log`.
+The **Status** tab shows the devices connected here, the other computers heard on
+the network, and the last switch. **Open log** shows the details.
 
-| Check result or symptom | What to do |
+| Symptom | What to do |
 |---|---|
-| `no Logitech keyboard or mouse found` | Make sure the devices are connected to this computer right now. On a Mac, check Input Monitoring. |
-| `no keyboard accepted the Easy-Switch takeover` | Logi Options+ may still be running; uninstall it. Otherwise run the diagnose command below and send the report. |
-| `the keyboard works, but no mouse answered` | Move the mouse (it may be asleep) and make sure it's on this computer's channel, then run the check again. |
-| `different channel numbers` | Re-pair so this computer has the same number on both devices. |
-| Keys switch only the keyboard | Is the relay running? Windows: Task Manager → `easyswitch-relay`. Mac: `pgrep -lf easyswitch-relay`. |
-| Mac stops taking typing while the relay runs | Quit it (`bash uninstall.sh`) and send me the log. This is a known macOS risk the relay guards against. |
-| Windows warns the app is unrecognized, or antivirus flags it | It's unsigned and packaged with PyInstaller, which some antivirus tools flag. Build it yourself from this folder if you prefer, and compare the `.sha256` before copying it to another PC. |
+| Status says the relay isn't running | Click **Start relay**. |
+| No other computers listed | Same pairing code and same port on each? Firewall prompt allowed? Some networks block broadcasts: enter the other computers' addresses under Follow → Advanced. |
+| Mouse doesn't follow | Is the computer that has the mouse awake, with the relay running? Check its Status tab. |
+| A shortcut key does nothing | Set it again on the Shortcut keys tab while the keyboard is connected to that computer. |
+| Mac: no devices found | Turn on Input Monitoring for EasySwitch Relay, then reopen the settings. |
 
-**Detailed device report.** This lists what the keyboard and mouse support. It contains
-device names, feature lists and key IDs only, and is saved as `diagnose.txt` next to the log.
+**Device check from a terminal.** These write to the log and print the result.
 
-- Windows: `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --diagnose`
-- Mac: `"$HOME/Applications/EasySwitch Relay.app/Contents/MacOS/easyswitch-relay" --diagnose`
+| | Check devices | Detailed report (`diagnose.txt` next to the log) |
+|---|---|---|
+| Windows | `& "$env:LOCALAPPDATA\Programs\EasySwitchRelay\easyswitch-relay.exe" --probe` | `... --diagnose` |
+| Mac | `"$HOME/Applications/EasySwitch Relay.app/Contents/MacOS/easyswitch-relay" --probe` | `... --diagnose` |
 
-## What's in this folder
+**Where files live:**
+
+- **Windows:** settings, status and log are all in `%LOCALAPPDATA%\EasySwitchRelay`.
+- **Mac:** settings and status are in `~/Library/Application Support/EasySwitchRelay`;
+  the log is in `~/Library/Logs/EasySwitchRelay`.
+
+## Security and privacy
+
+- **Network:** the network is off until you set a pairing code.
+  - **Signing:** messages are signed with a key derived from the code (HMAC-SHA256).
+    A computer without the code can't make yours do anything.
+  - **Freshness:** messages older than two minutes, or seen before, are ignored.
+  - **Reach:** they stay on your local network (UDP port 47811 by default).
+  - **What they can do:** at most, move your keyboard or mouse to one of its paired
+    computers, or share your shortcut-key choices.
+- **Devices:** the relay only talks to Logitech devices' own control channel. It never
+  sees what you type, and nothing is written permanently to the devices.
+- **Files:** the settings file (it holds the pairing code) is readable only by your
+  user account on macOS.
+- **Uninstall** removes the app, the sign-in entry, the Start menu entry and the Mac's
+  Input Monitoring entry. Settings and log are kept unless you add `-RemoveLogs`
+  (Windows) or `--remove-logs` (Mac).
+
+## Building it yourself
+
+Pushing a version tag (or publishing a release) builds both apps on GitHub's machines
+and attaches them to the release with a signed build-provenance record:
+
+```
+gh attestation verify <zip> --repo <owner>/<repo>
+```
+
+**To build locally** you need Python 3.10–3.14 from python.org (it includes the Tk
+library the settings window uses):
+
+- Windows: `powershell -ExecutionPolicy Bypass -File windows\build.ps1`
+- Mac: `bash macos/build.sh`
+
+**Build hardening:**
+
+- Every build dependency is pinned and hash-checked in `requirements-build.txt`.
+- Packages install from prebuilt files only, so nothing runs code during install.
+- The workflow's actions are pinned to exact commits.
 
 | File | What it is |
 |---|---|
-| `easyswitch_relay.py` | The relay itself (about 500 lines, readable top to bottom). |
-| `easyswitch-relay.spec` | PyInstaller recipe: a folder app with no console and no Dock icon. |
-| `requirements-build.txt` | Hash-locked build dependencies: hidapi 0.15.0, PyInstaller 6.22.3, and PyInstaller's own dependencies. |
-| `windows/`, `macos/` | Build, install and uninstall scripts. |
-| `.github/workflows/build.yml` | Optional cloud build, with actions pinned to exact commits. |
-
-## Security notes
-
-- **hidapi 0.15.0** (the USB/HID library) was reviewed before use:
-  - the published package matches its public source;
-  - nothing malicious and no network code was found;
-  - the issues found were in how the relay called it, and are fixed here.
-- **Runtime access:** the relay opens only Logitech vendor control interfaces
-  (vendor ID 046D, usage pages FF00/FF43). It does not open the normal keyboard
-  input channel.
-- **Files it writes:** only its log and a lock file that stops two copies running.
-- **Removal:** the uninstallers remove everything, including the Mac's Input
-  Monitoring entry. Logs are kept unless you ask for them to be removed.
+| `easyswitch_relay.py` | Entry point: settings window, `--run`, `--probe`, `--diagnose`. |
+| `esr_hid.py` | Device layer: Logitech HID++ transport, logging, file locations. |
+| `esr_relay.py` | The relay: device presence, shortcut keys, follow, status. |
+| `esr_net.py` | Signed messages between your computers. |
+| `esr_config.py` | Settings shared by the relay and the settings window. |
+| `esr_ui.py` | The settings window. |
+| `esr_diag.py` | The `--diagnose` report. |
