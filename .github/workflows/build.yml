@@ -1,0 +1,79 @@
+# Optional: build both apps on GitHub's machines instead of your own, so no
+# Python is needed on any of your computers. Push this folder to a GitHub repo,
+# then run "Build" from the Actions tab (or push a tag like v1.0.0).
+#
+# Supply-chain hardening:
+#   * every action is pinned to an exact commit, not a movable tag
+#   * dependencies install hash-locked and binary-only (see requirements-build.txt)
+#   * each zip gets a signed build-provenance attestation, which you can check with
+#     gh attestation verify <zip> --repo <you>/<repo>
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest   # x64
+            script: pwsh -File windows/build.ps1
+          - os: macos-latest     # Apple Silicon (arm64)
+            script: bash macos/build.sh
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write       # for the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: ${{ matrix.script }}
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: dist/*.zip
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: EasySwitchRelay-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+          if-no-files-found: error
+
+  # On a version tag (v1.0.0 etc.), publish both zips as a GitHub Release so
+  # they can be downloaded without signing in to GitHub.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" out/*.zip out/*.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "EasySwitch Relay $TAG" \
+            --notes "Windows (x64) and macOS (Apple Silicon) builds. Install steps are in the README. Each zip has a .sha256 file and a build-provenance attestation (gh attestation verify <zip> --repo $GITHUB_REPOSITORY)."
