@@ -74,6 +74,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" out/*.zip out/*.zip.sha256 \
-            --repo "$GITHUB_REPOSITORY" --title "EasySwitch Relay $TAG" \
-            --notes "Windows (x64) and macOS (Apple Silicon) builds. Install steps are in the README. Each zip has a .sha256 file and a build-provenance attestation (gh attestation verify <zip> --repo $GITHUB_REPOSITORY)."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Release already exists (e.g. created on github.com): attach the builds.
+            gh release upload "$TAG" out/*.zip out/*.zip.sha256 --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" out/*.zip out/*.zip.sha256 \
+              --repo "$GITHUB_REPOSITORY" --title "EasySwitch Relay $TAG" \
+              --notes "Windows (x64) and macOS (Apple Silicon) builds. Install steps are in the README. Each zip has a .sha256 file and a build-provenance attestation (gh attestation verify <zip> --repo $GITHUB_REPOSITORY)."
+          fi
