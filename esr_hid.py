@@ -15,7 +15,7 @@ import time
 
 import hid
 
-__version__ = "1.1.2"
+__version__ = "1.2.0"
 
 if sys.platform == "darwin":
     # hidapi on macOS opens devices exclusively ("seize") by default, which can
@@ -62,6 +62,7 @@ CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 CAPTURE_FLAG = os.path.join(DATA_DIR, "capturing")
 LOGREQ_FLAG = os.path.join(DATA_DIR, "request-logs")      # ask other computers for logs
 PEER_LOG_DIR = os.path.join(DATA_DIR, "peer-logs")
+UPDATE_ALL_FLAG = os.path.join(DATA_DIR, "request-update-all")
 LOG_MAX = 1_000_000
 
 # ----------------------------------------------------------------- logging
@@ -176,6 +177,8 @@ class Link:
         self.is_receiver = infos[0]["usage_page"] == 0xFF00
         self.product = infos[0].get("product_string") or ""
         self.alive = True
+        self.write_err = ""           # last write error text, logged when it changes
+        self.write_err_at = 0.0
         self.handles = []
         long_handle = None
         seen = set()
@@ -227,9 +230,28 @@ class Link:
         pkt = [LONG, idx, feat, (fn << 4) | SW_ID, *params]
         pkt += [0] * (LONG_LEN - len(pkt))
         try:
-            return self.out.write(pkt) > 0
-        except (OSError, IOError, ValueError):
-            return False
+            ok = self.out.write(pkt) > 0
+        except (OSError, IOError, ValueError) as e:
+            ok, err = False, str(e)
+        else:
+            err = ""
+        if not ok:
+            self._note_write_error(err)
+        return ok
+
+    def _note_write_error(self, err):
+        """Log why writes fail (the operating system's own error text), once per
+        distinct error and at most once a minute: this is what tells apart
+        'device not connected', 'another app has it' and 'not permitted'."""
+        try:
+            err = err or (self.out.error() or "")
+        except Exception:
+            pass
+        err = (err or "unknown error").strip()[:200]
+        now = time.monotonic()
+        if err != self.write_err or now - self.write_err_at > 60:
+            self.write_err, self.write_err_at = err, now
+            log(f"write to {self.product or 'device'} failed: {err}")
 
 
 def group_key(path):
@@ -284,7 +306,7 @@ def request(link, idx, feat, fn, params=(), timeout=PROBE_TIMEOUT):
     global last_error
     fnb = (fn << 4) | SW_ID
     if not link.send(idx, feat, fn, params):
-        last_error = "write failed"
+        last_error = f"write failed ({link.write_err})"
         return None
     deadline = time.monotonic() + timeout
     while True:

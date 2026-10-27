@@ -23,6 +23,9 @@ DEFAULTS = {
     "keys_updated": 0.0,
     "sync_keys": True,           # share shortcut keys with the other computers
     "channel_names": {"1": "", "2": "", "3": ""},
+    # Updates
+    "check_updates": True,       # check when the settings window opens
+    "allow_remote_update": True, # let my other computers start an update here
 }
 
 

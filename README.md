@@ -3,7 +3,7 @@
 Keeps a Logitech keyboard and mouse (for example **MX Keys** and **MX Master 3S**)
 on the same computer, so you never type into the wrong one.
 
-Version 1.1.2 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
+Version 1.2.0 · Windows 10/11 (x64) and macOS 11+ · runs per user, no admin rights.
 
 ---
 
@@ -52,6 +52,28 @@ To reopen the settings later:
 
 **Windows:** the first time network follow is on, Windows may ask whether
 EasySwitch Relay may use your network. Allow it on **private** networks.
+
+## Updating
+
+From version 1.2.0 on, update from the app itself:
+
+1. Open the settings window and go to the **Updates** tab. It checks automatically when the window opens.
+2. Click **Update this computer**, or **Update all my computers** to also tell your
+   other computers (with network follow on) to update themselves.
+
+**How updates are protected:**
+
+- Updates come only from this project's GitHub releases, over HTTPS.
+- A download is installed only if it matches the SHA-256 checksum published with the
+  release, and GitHub's own checksum for the file.
+- A computer asked to update by another one fetches and checks the update itself. It
+  never takes a file or link from the message.
+- To stop other computers from starting an update on one, turn that option off on its
+  Updates tab.
+
+**Mac:** macOS asks for **Input Monitoring** again after every update, because the app
+isn't signed with an Apple developer certificate. Click **Open System Settings** in the
+prompt and turn **EasySwitch Relay** on. The installer clears the old entry for you.
 
 ## Set up (once)
 

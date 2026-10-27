@@ -107,7 +107,7 @@ class Net:
         if not self.sock:
             return
         msg = {"v": 1, "t": mtype, "id": self.iid, "n": secrets.token_hex(8),
-               "ts": time.time(), "name": self.name, **fields}
+               "ts": time.time(), "name": self.name, "ver": esr_hid.__version__, **fields}
         payload = json.dumps(msg, separators=(",", ":")).encode()
         pkt = MAGIC + hmac.new(self.key, payload, hashlib.sha256).digest() + payload
         for addr in self._targets():
@@ -134,6 +134,7 @@ class Net:
                 old = self.peers.get(msg["id"], {})
                 self.peers[msg["id"]] = {"name": str(msg.get("name", "?"))[:40], "addr": addr,
                                          "seen": time.time(),
+                                         "ver": str(msg.get("ver", old.get("ver", "?")))[:12],
                                          "devices": msg.get("devices", old.get("devices", []))}
             esr_hid.reports.put(("__net__", msg))
 
@@ -164,5 +165,5 @@ class Net:
         now = time.time()
         with self.lock:
             return [{"name": p["name"], "addr": p["addr"], "age": round(now - p["seen"]),
-                     "devices": p["devices"]}
+                     "devices": p["devices"], "version": p.get("ver", "?")}
                     for p in self.peers.values() if now - p["seen"] < PEER_TIMEOUT]

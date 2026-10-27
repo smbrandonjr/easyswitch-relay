@@ -179,6 +179,8 @@ class SettingsApp:
         self._build()
         self._load_into_widgets()
         self.refresh()
+        if self.cfg.get("check_updates", True) and not self.U.available():
+            self.root.after(800, lambda: self.on_check_update(quiet=True))
 
     # ------------------------------------------------------------ layout
     def _build(self):
@@ -196,12 +198,16 @@ class SettingsApp:
         self.tab_status = ttk.Frame(nb, padding=12)
         self.tab_follow = ttk.Frame(nb, padding=12)
         self.tab_keys = ttk.Frame(nb, padding=12)
+        self.tab_update = ttk.Frame(nb, padding=12)
         nb.add(self.tab_status, text="Status")
         nb.add(self.tab_follow, text="Follow (network)")
         nb.add(self.tab_keys, text="Shortcut keys")
+        nb.add(self.tab_update, text="Updates")
+        self.notebook = nb
         self._build_status()
         self._build_follow()
         self._build_keys()
+        self._build_updates()
 
         bottom = ttk.Frame(r)
         bottom.pack(fill="x", padx=12, pady=(0, 12))
@@ -225,14 +231,15 @@ class SettingsApp:
         self.dev_tree.pack(fill="x", pady=(4, 10))
 
         ttk.Label(t, text="Other computers", font=self.f_bold).pack(anchor="w")
-        self.peer_tree = ttk.Treeview(t, columns=("addr", "devs", "seen"), show="tree headings",
-                                      height=3)
+        self.peer_tree = ttk.Treeview(t, columns=("addr", "devs", "ver", "seen"),
+                                      show="tree headings", height=3)
         self.peer_tree.heading("#0", text="Computer")
         self.peer_tree.heading("addr", text="Address")
         self.peer_tree.heading("devs", text="Has")
+        self.peer_tree.heading("ver", text="Version")
         self.peer_tree.heading("seen", text="Last heard")
-        self.peer_tree.column("#0", width=170)
-        for c, w in (("addr", 120), ("devs", 190), ("seen", 90)):
+        self.peer_tree.column("#0", width=160)
+        for c, w in (("addr", 110), ("devs", 160), ("ver", 70), ("seen", 80)):
             self.peer_tree.column(c, width=w, anchor="center")
         self.peer_tree.pack(fill="x", pady=(4, 6))
         self.net_lbl = ttk.Label(t, text="", wraplength=580, justify="left")
@@ -346,6 +353,137 @@ class SettingsApp:
                                      foreground="#1a4f9c")
         self.capture_lbl.pack(anchor="w", pady=(12, 0))
 
+    def _build_updates(self):
+        import esr_update as U
+        self.U = U
+        t = self.tab_update
+        ttk.Label(t, text=f"This computer has version {H.__version__}.",
+                  font=self.f_bold).pack(anchor="w")
+        self.upd_lbl = ttk.Label(t, text="", wraplength=580, justify="left")
+        self.upd_lbl.pack(anchor="w", pady=(8, 8))
+        row = ttk.Frame(t)
+        row.pack(anchor="w")
+        self.check_btn = ttk.Button(row, text="Check for updates", command=self.on_check_update)
+        self.check_btn.pack(side="left")
+        self.update_btn = ttk.Button(row, text="Update this computer",
+                                     command=lambda: self.on_update(all_computers=False))
+        self.update_all_btn = ttk.Button(row, text="Update all my computers",
+                                         command=lambda: self.on_update(all_computers=True))
+        self.auto_check_var = tk.BooleanVar()
+        self.remote_upd_var = tk.BooleanVar()
+        ttk.Checkbutton(t, variable=self.auto_check_var, text=(
+            "Check for updates when this window opens")).pack(anchor="w", pady=(14, 0))
+        ttk.Checkbutton(t, variable=self.remote_upd_var, text=(
+            "Let my other computers start an update on this one (needs network follow)")
+                        ).pack(anchor="w", pady=(4, 0))
+        note = ("Updates come only from this app's own GitHub releases, over HTTPS, and are "
+                "installed only if they match the SHA-256 checksum published with the release. "
+                "A computer asked to update by another one downloads and checks the update "
+                "itself. Your settings are kept.")
+        if sys.platform == "darwin":
+            note += (" On this Mac, macOS asks for Input Monitoring again after each update "
+                     "(the app isn't signed with an Apple certificate): click Open System "
+                     "Settings and turn EasySwitch Relay on.")
+        ttk.Label(t, text=note, foreground="#666", wraplength=580, justify="left").pack(
+            anchor="w", pady=(14, 0))
+        self.latest = None
+        why = U.available()
+        if why:
+            self.upd_lbl.configure(text=why)
+            self.check_btn.configure(state="disabled")
+
+    def on_check_update(self, quiet=False):
+        if self.U.available():
+            return
+        self.upd_lbl.configure(text="Checking...")
+        self.check_btn.configure(state="disabled")
+        q = queue.Queue()
+
+        def work():
+            try:
+                q.put(("ok", self.U.latest()))
+            except Exception as e:
+                q.put(("err", str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+        def done():
+            try:
+                kind, val = q.get_nowait()
+            except queue.Empty:
+                self.root.after(200, done)
+                return
+            self.check_btn.configure(state="normal")
+            self.update_btn.pack_forget()
+            self.update_all_btn.pack_forget()
+            if kind == "err":
+                self.upd_lbl.configure(text=f"Couldn't check for updates: {val}")
+                return
+            self.latest = val
+            if self.U.is_newer(val["version"]):
+                self.upd_lbl.configure(text=(
+                    f"Version {val['version']} is available"
+                    f"{' (released ' + val['published'][:10] + ')' if val['published'] else ''}."
+                    f"\n{val['notes']}"))
+                self.update_btn.pack(side="left", padx=(8, 0))
+                self.update_all_btn.pack(side="left", padx=(8, 0))
+                if quiet:
+                    self.notebook.select(self.tab_update)
+            else:
+                self.upd_lbl.configure(text=f"You're up to date (latest is {val['version']}).")
+                self.update_all_btn.pack(side="left", padx=(8, 0))
+        self.root.after(200, done)
+
+    def on_update(self, all_computers):
+        if all_computers:
+            if not read_status().get("fresh"):
+                messagebox.showerror("EasySwitch Relay", "Start the relay first: it sends the "
+                                     "update request to your other computers.")
+                return
+            try:
+                os.makedirs(H.DATA_DIR, exist_ok=True)
+                open(H.UPDATE_ALL_FLAG, "w").close()
+            except OSError as e:
+                messagebox.showerror("EasySwitch Relay", f"Couldn't ask the others: {e}")
+                return
+        newer = self.latest and self.U.is_newer(self.latest["version"])
+        if not newer:
+            self.upd_lbl.configure(text=(
+                "Asked your other computers to update. This one is already up to date."))
+            return
+        self.upd_lbl.configure(text=(
+            f"Downloading and checking version {self.latest['version']}..."
+            + (" Your other computers were asked to update too." if all_computers else "")))
+        self.update_btn.configure(state="disabled")
+        self.update_all_btn.configure(state="disabled")
+        q = queue.Queue()
+        info = self.latest
+
+        def work():
+            try:
+                if all_computers:
+                    time.sleep(2.0)    # let the relay send the request before it's replaced
+                self.U.update_now(unattended=False, info=info)
+                q.put(("ok", None))
+            except Exception as e:
+                q.put(("err", str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+        def done():
+            try:
+                kind, val = q.get_nowait()
+            except queue.Empty:
+                self.root.after(200, done)
+                return
+            if kind == "err":
+                self.upd_lbl.configure(text=f"Update failed: {val}")
+                self.update_btn.configure(state="normal")
+                self.update_all_btn.configure(state="normal")
+                return
+            self.upd_lbl.configure(text="Installing. This window will close and reopen with "
+                                        "the new version in a few seconds.")
+            self.root.after(2500, self.root.destroy)
+        self.root.after(200, done)
+
     # ---------------------------------------------------------- data flow
     def _load_into_widgets(self):
         c = self.cfg
@@ -356,6 +494,8 @@ class SettingsApp:
         self.port_var.set(str(c["port"]))
         self.peers_var.set(", ".join(c.get("extra_peers") or []))
         self.sync_var.set(bool(c["sync_keys"]))
+        self.auto_check_var.set(bool(c.get("check_updates", True)))
+        self.remote_upd_var.set(bool(c.get("allow_remote_update", True)))
         for ch in ("1", "2", "3"):
             self.chname_vars[ch].set(c["channel_names"].get(ch, ""))
         self._show_keys()
@@ -387,6 +527,8 @@ class SettingsApp:
             "computer_name": self.name_var.get().strip()[:40] or C.default_name(),
             "follow_keyboard": self.fk_var.get(), "follow_mouse": self.fm_var.get(),
             "port": port, "sync_keys": self.sync_var.get(),
+            "check_updates": self.auto_check_var.get(),
+            "allow_remote_update": self.remote_upd_var.get(),
             "extra_peers": [p.strip() for p in self.peers_var.get().split(",") if p.strip()],
             "channel_names": {ch: v.get().strip()[:30] for ch, v in self.chname_vars.items()},
         })
@@ -510,7 +652,8 @@ class SettingsApp:
             has = ", ".join(f"{x.get('type')} (ch {x['ch'] + 1})" for x in p.get("devices", [])
                             if isinstance(x.get("ch"), int)) or "-"
             self.peer_tree.insert("", "end", text=p["name"],
-                                  values=(p["addr"], has, f"{p['age']} s ago"))
+                                  values=(p["addr"], has, p.get("version", "?"),
+                                          f"{p['age']} s ago"))
         if not st.get("fresh"):
             msg = "Start the relay to see live status."
         elif not net.get("enabled"):

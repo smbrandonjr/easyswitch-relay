@@ -403,6 +403,47 @@ class Relay:
             self.send_logs(msg["id"])
         elif t == "logtail":
             self.save_peer_log(msg, who)
+        elif t == "update":
+            self.remote_update(who)
+
+    def check_update_request(self):
+        """The settings window asks the other computers to update by creating a
+        request file. They each fetch and verify the update themselves."""
+        if not os.path.exists(H.UPDATE_ALL_FLAG):
+            return
+        try:
+            os.remove(H.UPDATE_ALL_FLAG)
+        except OSError:
+            return
+        if self.net and self.net.sock:
+            H.log("asking the other computers to update")
+            self.net_send("update")
+
+    def remote_update(self, who):
+        """Another of my computers asked for an update. Only ever installs the
+        latest release from this app's own GitHub project, after verifying it."""
+        if not self.cfg.get("allow_remote_update", True):
+            H.log(f"update requested by {who}, but remote updates are turned off here")
+            return
+        if getattr(self, "_updating", False):
+            return
+        self._updating = True
+
+        def work():
+            try:
+                import esr_update as U
+                info = U.latest()
+                if not U.is_newer(info["version"]):
+                    H.log(f"update requested by {who}: already up to date ({H.__version__})")
+                    return
+                H.log(f"update requested by {who}: installing {info['version']}")
+                U.update_now(unattended=True, info=info)
+            except Exception as e:
+                H.log(f"update requested by {who} failed: {e}")
+            finally:
+                self._updating = False
+        import threading
+        threading.Thread(target=work, daemon=True).start()
 
     def check_log_request(self):
         """The settings window (or support) asks for the other computers' logs by
@@ -525,6 +566,7 @@ class Relay:
                 self.t["cfg"] = now
                 self.reload_config()
                 self.check_log_request()
+                self.check_update_request()
             if sys.platform == "darwin" and now - self.t["perm"] > PERM_CHECK_EVERY:
                 self.t["perm"] = now
                 im = H.macos_input_monitoring(request_access=False)
